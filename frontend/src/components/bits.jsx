@@ -34,11 +34,12 @@ export function UnitBox({ value, label, size, none = 'size?' }) {
   )
 }
 
-export function DateStamp({ date, daysLeft, state, estimated = false }) {
+export function DateStamp({ date, daysLeft, state, source }) {
+  const provenance = source === 'estimated' ? 'est. · ' : source === 'adjusted' ? 'adjusted · ' : ''
   return (
     <span className={`stamp stamp--${state || 'none'}`}>
       <b>{date ? shortDate(date) : 'No date'}</b>
-      <span>{date ? `${estimated ? 'est. · ' : ''}${freshnessText(daysLeft)}` : 'add one'}</span>
+      <span>{date ? `${provenance}${freshnessText(daysLeft)}` : source === 'not_applicable' ? 'not needed' : 'add one'}</span>
     </span>
   )
 }

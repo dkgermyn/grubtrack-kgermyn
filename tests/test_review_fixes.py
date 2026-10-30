@@ -202,7 +202,7 @@ def test_migration_tolerates_duplicate_columns(con):
 def test_v1_database_gets_v2_triggers(con):
     from foodcore import schema
     con.execute("PRAGMA user_version = 1")
-    assert schema.migrate(con) == schema.VERSION == 4
+    assert schema.migrate(con) == schema.VERSION == 5
     sql = {r[0]: r[1] for r in con.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'")}
     assert set(sql) == {"gt_items_price_ins", "gt_items_price_upd"}
     assert all("%f" in v for v in sql.values())

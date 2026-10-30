@@ -77,6 +77,7 @@ def item_detail(item_id: str, con=Depends(get_con)):
 
 _EDITABLE = {"name", "brand", "storage", "location", "category", "subCategory", "spiritType", "quantity", "unit",
              "size", "expirationDate", "purchaseDate", "openedAt", "bottleState", "abv", "volumeMl", "notes", "price"}
+_EXPIRATION_SOURCES = {"explicit", "estimated", "adjusted", "not_applicable", None}
 
 
 @router.post("/items", status_code=201)
@@ -105,6 +106,16 @@ def update_item(item_id: str, data: dict = Body(...), con=Depends(get_con)):
             patch["price"] = fdb.parse_price(patch["price"], strict=True)
         except SystemExit as e:  # the CLI's way of refusing; here it's a 400
             raise HTTPException(400, str(e))
+    mode = data.get("expirationMode")
+    if "expirationDate" in patch and mode == "adjusted":
+        patch["_expirationSource"] = "adjusted"
+        patch["_expirationRuleId"] = None
+    elif "expirationDate" in patch and mode == "restore":
+        source = data.get("expirationSource")
+        if source not in _EXPIRATION_SOURCES:
+            raise HTTPException(400, "Invalid expiration source")
+        patch["_expirationSource"] = source
+        patch["_expirationRuleId"] = data.get("expirationRuleId")
     fdb.update_item(con, item_id, patch)
     _sweep(con)
     return item_out(con.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone())

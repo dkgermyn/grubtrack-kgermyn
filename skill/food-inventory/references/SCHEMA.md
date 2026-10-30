@@ -73,12 +73,11 @@ expiration date alone no longer needs pending state: GrubTrack records a labeled
 See `scripts/pending.js`.
 
 
-## Foodcore schema v4
+## Foodcore schema v5
 
-`PRAGMA user_version` = 4 (v3 plus catalog-version estimate refresh). Additive: nothing above changed.
-Code: `scripts/foodcore/`. Migration fills active undated legacy items from their purchase date or,
-when that is absent, their original `createdAt` date. It also recalculates active rule-generated
-dates when a catalog revision adds a more specific match; explicit dates are untouched.
+`PRAGMA user_version` = 5. Code: `scripts/foodcore/`. Migration adds expiration-rule support without
+assigning dates to legacy undated items or recalculating existing estimates. Preview catalog changes
+with `python3 scripts/fooddb_sqlite.py expiration-refresh`; `--apply` performs the displayed changes.
 Built-ins are conservative household estimates informed by USDA FoodKeeper and its cold-storage
 chart, not package dates or food-safety guarantees.
 
@@ -90,13 +89,13 @@ chart, not package dates or food-safety guarantees.
 | `stores` | physical store | `chain`, `name`, `branch`, `address`, `city`, `region`, `postal`, `storeNumber` |
 | `store_aliases` | spelling of a store | `alias` → `storeId` |
 | `item_price_audit` | correction to `items.price` | `oldPrice`, `newPrice`, `reason`, `at` |
-| `expiration_rules` | shelf-life rule | optional canonical `generic` or taxonomy `category`, `storage`, `days`, `priority`, `enabled`, `source` |
+| `expiration_rules` | shelf-life rule | optional canonical `generic` or taxonomy `category`, `storage`, `days`, `priority`, `enabled`, `noEstimate`, `source` |
 
 | Added column | Meaning |
 |---|---|
 | `items.price`, `items.receiptId` | what this row cost, on which receipt (latest linked receipt wins) |
 | `items.productId`, `items.dept`, `items.cat` | resolved product and taxonomy (filled by the sweep) |
-| `items.expirationSource`, `items.expirationRuleId` | `explicit` or labeled `estimated` provenance and the matching rule |
+| `items.expirationSource`, `items.expirationRuleId` | `explicit`, `estimated`, `adjusted`, or `not_applicable` provenance and the matching rule |
 | `receipts.storeId`, `subtotal`, `tax`, `lineCount` | resolved store, printed figures |
 | `receipts.reconciled`, `receipts.diff` | 1 when lines + tax = total within $0.02; the gap otherwise |
 
@@ -107,6 +106,6 @@ chart, not package dates or food-safety guarantees.
 | A reconciled receipt's lines outrank item-level prices for that receipt | trigger + `import_receipt` |
 | Same item code at the same chain = same product | `ledger.sweep` |
 | A category set by a person (`catSource='user'`) is never re-classified | `ledger.sweep` |
-| An explicit expiration date wins; otherwise the highest-priority most-specific enabled rule supplies an estimate | `expiration.estimate` |
+| An explicit expiration date wins; otherwise the highest-priority most-specific enabled rule supplies an estimate or an intentional no-date result | `expiration.estimate` |
 
 Taxonomy: 12 departments, `dept.cat` keys (`python3 fooddb_sqlite.py categories`).

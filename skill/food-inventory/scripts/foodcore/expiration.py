@@ -37,6 +37,7 @@ DEFAULT_RULES = (
     ("cucumber-fridge", "cucumber", None, "fridge", 7),
     ("tomato-counter", "tomato", None, "counter", 7),
     ("tomato-fridge", "tomato", None, "fridge", 7),
+    ("bagel-any", "bagel", None, "*", 7),
 
     # Category rules cover the rest of the existing taxonomy.
     ("produce-greens-fridge", None, "produce.greens", "fridge", 7),
@@ -80,6 +81,12 @@ DEFAULT_RULES = (
     ("bar-any", None, "bar.*", "*", 365),
     ("household-any", None, "household.*", "*", 730),
 
+    # A date would be actively misleading for these categories. Higher priority
+    # makes these opt-outs beat the older catch-all built-ins on upgraded DBs.
+    ("bar-no-estimate", None, "bar.*", "*", 0, 100, 1),
+    ("household-no-estimate", None, "household.*", "*", 0, 100, 1),
+    ("spices-no-estimate", None, "pantry.spices", "*", 0, 100, 1),
+
     # Total deterministic fallback: every new item receives an estimate.
     ("fallback-fridge", None, None, "fridge", 4),
     ("fallback-freezer", None, None, "freezer", 180),
@@ -92,11 +99,19 @@ DEFAULT_RULES = (
 
 def seed(con) -> None:
     """Install missing built-in rules without overwriting household edits."""
+    dated = [rule for rule in DEFAULT_RULES if len(rule) == 5]
+    undated = [rule for rule in DEFAULT_RULES if len(rule) == 7]
     con.executemany(
         """INSERT OR IGNORE INTO expiration_rules
-           (id, generic, category, storage, days, priority, enabled, source)
-           VALUES (?, ?, ?, ?, ?, 0, 1, 'built-in')""",
-        DEFAULT_RULES,
+           (id, generic, category, storage, days, priority, enabled, source, noEstimate)
+           VALUES (?, ?, ?, ?, ?, 0, 1, 'built-in', 0)""",
+        dated,
+    )
+    con.executemany(
+        """INSERT OR IGNORE INTO expiration_rules
+           (id, generic, category, storage, days, priority, enabled, source, noEstimate)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'built-in', 1)""",
+        undated,
     )
 
 
@@ -134,7 +149,7 @@ def estimate(con, obj: dict, *, today: dt.date | None = None) -> dict:
     storage = str(obj.get("storage") or "").strip().lower()
     candidates = []
     for row in con.execute(
-        """SELECT id, generic, category, storage, days, priority
+        """SELECT id, generic, category, storage, days, priority, noEstimate
            FROM expiration_rules WHERE enabled = 1"""
     ).fetchall():
         rule = dict(row)
@@ -155,6 +170,14 @@ def estimate(con, obj: dict, *, today: dt.date | None = None) -> dict:
     if not candidates:  # defensive: the built-in wildcard normally makes this impossible
         return {}
     _, _, selected = max(candidates, key=lambda value: (value[0], value[1]))
+    if selected["noEstimate"]:
+        return {
+            "expirationDate": None,
+            "expirationSource": "not_applicable",
+            "expirationRuleId": selected["id"],
+            "category": category,
+            "generic": generic,
+        }
     base = _base_date(obj.get("purchaseDate") or obj.get("createdAt"), today or dt.date.today())
     return {
         "expirationDate": (base + dt.timedelta(days=int(selected["days"]))).isoformat(),
@@ -165,53 +188,42 @@ def estimate(con, obj: dict, *, today: dt.date | None = None) -> dict:
     }
 
 
-def backfill_missing(con) -> int:
-    """Give active legacy pantry rows a labeled estimate during migration."""
-    changed = 0
-    rows = con.execute(
-        """SELECT * FROM items
-           WHERE deletedAt IS NULL AND (expirationDate IS NULL OR trim(expirationDate) = '')"""
-    ).fetchall()
-    for row in rows:
-        result = estimate(con, dict(row))
-        if not result.get("expirationDate"):
-            raise RuntimeError(f"no expiration rule matched legacy item {row['id']}")
-        con.execute(
-            """UPDATE items
-               SET expirationDate = ?, expirationSource = ?, expirationRuleId = ?
-               WHERE id = ?""",
-            (
-                result["expirationDate"],
-                result["expirationSource"],
-                result["expirationRuleId"],
-                row["id"],
-            ),
-        )
-        changed += 1
-    return changed
-
-
-def refresh_estimates(con) -> int:
-    """Re-evaluate active estimates after a rule-catalog version change.
-
-    Explicit dates are never selected. Recalculation keeps the original purchase
-    or logged date as the base, so a more specific rule cannot extend an item's
-    life merely because the application was upgraded later.
-    """
-    changed = 0
+def refresh_plan(con) -> list[dict]:
+    """Preview rule changes for active estimates without writing anything."""
+    changes = []
     rows = con.execute(
         """SELECT * FROM items
            WHERE deletedAt IS NULL AND expirationSource = 'estimated'"""
     ).fetchall()
     for row in rows:
         result = estimate(con, dict(row))
-        if not result.get("expirationDate"):
-            raise RuntimeError(f"no expiration rule matched estimated item {row['id']}")
+        if not result:
+            continue
+        if (result.get("expirationDate"), result.get("expirationSource"), result.get("expirationRuleId")) == (
+            row["expirationDate"], row["expirationSource"], row["expirationRuleId"]
+        ):
+            continue
+        changes.append({
+            "id": row["id"],
+            "name": row["name"],
+            "oldDate": row["expirationDate"],
+            "newDate": result.get("expirationDate"),
+            "oldSource": row["expirationSource"],
+            "newSource": result.get("expirationSource"),
+            "oldRuleId": row["expirationRuleId"],
+            "newRuleId": result.get("expirationRuleId"),
+        })
+    return changes
+
+
+def refresh_estimates(con) -> list[dict]:
+    """Apply a previously previewable refresh to active generated estimates."""
+    changes = refresh_plan(con)
+    for change in changes:
         con.execute(
             """UPDATE items
-               SET expirationDate = ?, expirationRuleId = ?
+               SET expirationDate = ?, expirationSource = ?, expirationRuleId = ?
                WHERE id = ?""",
-            (result["expirationDate"], result["expirationRuleId"], row["id"]),
+            (change["newDate"], change["newSource"], change["newRuleId"], change["id"]),
         )
-        changed += 1
-    return changed
+    return changes

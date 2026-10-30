@@ -19,8 +19,9 @@ receipt or day updates that observation instead of adding a second one. An obser
 receipt line later replaces is marked `supersededBy` (kept, so unlinking can bring it back).
 
 Version lives in PRAGMA user_version (food.db was 0 before this). Version 3 adds
-the expiration-rule catalog and estimate provenance columns; version 4 refreshes
-existing estimates after adding the storage-independent banana rule.
+the expiration-rule catalog and estimate provenance columns; version 4 added the
+storage-independent banana rule. Version 5 adds explicit no-estimate rules and
+stops migrations from rewriting existing pantry dates.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import sqlite3
 
 from . import expiration
 
-VERSION = 4
+VERSION = 5
 
 # milliseconds: whether a logged price came before or after a receipt was recorded decides
 # whether it was a guess at that receipt (ledger._GUESS); seconds tie too easily
@@ -109,7 +110,8 @@ CREATE TABLE IF NOT EXISTS expiration_rules (
   days INTEGER NOT NULL CHECK(days >= 0 AND days <= 3650),
   priority INTEGER NOT NULL DEFAULT 0,
   enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
-  source TEXT NOT NULL DEFAULT 'custom'
+  source TEXT NOT NULL DEFAULT 'custom',
+  noEstimate INTEGER NOT NULL DEFAULT 0 CHECK(noEstimate IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_expiration_rules_match
   ON expiration_rules(enabled, generic, category, storage, priority);
@@ -225,9 +227,9 @@ def migrate(con: sqlite3.Connection) -> int:
                 if "duplicate column" not in str(e):  # another process got there first: fine
                     raise
     con.executescript(DDL)
+    if "noEstimate" not in _cols(con, "expiration_rules"):
+        con.execute("ALTER TABLE expiration_rules ADD COLUMN noEstimate INTEGER NOT NULL DEFAULT 0")
     expiration.seed(con)
-    expiration.backfill_missing(con)
-    expiration.refresh_estimates(con)
     con.execute("CREATE INDEX IF NOT EXISTS idx_items_product ON items(productId)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_items_cat ON items(cat)")
     con.execute(f"PRAGMA user_version = {VERSION}")

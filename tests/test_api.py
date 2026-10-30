@@ -67,6 +67,26 @@ def test_patch_item_extends_date(client):
     assert client.patch(f"/api/items/{item['id']}", json={"id": "x"}).status_code == 400
 
 
+def test_still_good_marks_date_adjusted_and_restore_keeps_provenance(client):
+    item = client.post("/api/items", json={"name": "Spinach", "storage": "fridge"}).json()
+    original = (item["expirationDate"], item["expirationSource"], item["expirationRuleId"])
+    adjusted = client.patch(
+        f"/api/items/{item['id']}",
+        json={"expirationDate": "2099-02-02", "expirationMode": "adjusted"},
+    ).json()
+    assert adjusted["expirationSource"] == "adjusted"
+    assert adjusted["expirationRuleId"] is None
+
+    restored = client.patch(
+        f"/api/items/{item['id']}",
+        json={
+            "expirationDate": original[0], "expirationMode": "restore",
+            "expirationSource": original[1], "expirationRuleId": original[2],
+        },
+    ).json()
+    assert (restored["expirationDate"], restored["expirationSource"], restored["expirationRuleId"]) == original
+
+
 def test_api_add_without_date_returns_visible_estimate(client):
     item = client.post("/api/items", json={"name": "Bananas", "storage": "counter"}).json()
     assert item["expirationDate"]

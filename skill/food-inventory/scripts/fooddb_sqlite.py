@@ -21,6 +21,7 @@ Usage:
   python3 fooddb_sqlite.py inventory [--where "location='bar'"] [--limit 50]
   python3 fooddb_sqlite.py expiring [--days 3 | --on 2026-08-16] [--limit 500]
   python3 fooddb_sqlite.py expired [--limit 500]
+  python3 fooddb_sqlite.py expiration-refresh [--apply]  # preview by default
   python3 fooddb_sqlite.py find --q "disaronno"        # searches current inventory by default
   python3 fooddb_sqlite.py find --q "disaronno" --all  # searches full history
   python3 fooddb_sqlite.py update --id <itemId> --set '{"bottleState":"open"}'
@@ -356,24 +357,30 @@ def add_item(con: sqlite3.Connection, obj: dict, merge: bool = True):
     match_key = obj.get("matchKey") or compute_match_key(obj)
 
     existing_id = find_existing_by_matchkey(con, match_key) if merge else None
+    existing = dict(con.execute("SELECT * FROM items WHERE id = ?", (existing_id,)).fetchone()) \
+        if existing_id else None
     item_id = existing_id or obj.get("id") or f"fi_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
     created_by = obj.get("createdBy") or {}
     raw = obj.get("raw") or {}
     conf = obj.get("confidence")
     expiration_date = _normalize_date(obj.get("expirationDate"))
+    incoming_explicit = bool(expiration_date)
     expiration_source = "explicit" if expiration_date else None
     expiration_rule_id = None
     if not expiration_date:
         core = _core()
-        if not core:
-            raise RuntimeError("expiration rules are unavailable")
-        estimate = core.expiration.estimate(con, obj)
-        if not estimate.get("expirationDate"):
-            raise RuntimeError("no expiration rule matched the item")
-        expiration_date = estimate["expirationDate"]
-        expiration_source = estimate["expirationSource"]
-        expiration_rule_id = estimate["expirationRuleId"]
+        if core:
+            try:
+                estimate = core.expiration.estimate(con, obj)
+                if estimate:
+                    expiration_date = estimate.get("expirationDate")
+                    expiration_source = estimate.get("expirationSource")
+                    expiration_rule_id = estimate.get("expirationRuleId")
+                else:
+                    print("warning: no expiration rule matched; logging without a date", file=sys.stderr)
+            except Exception as e:  # expiration intelligence must never block plain logging
+                print(f"warning: expiration estimate skipped ({e}); logging without a date", file=sys.stderr)
 
     row = {
         "id": item_id,
@@ -429,6 +436,28 @@ def add_item(con: sqlite3.Connection, obj: dict, merge: bool = True):
             patch.pop('id', None)
             patch.pop('createdAt', None)
             patch['updatedAt'] = ts
+            expiration_fields = ("expirationDate", "expirationSource", "expirationRuleId")
+            protected_existing_date = bool(existing.get("expirationDate")) and \
+                existing.get("expirationSource") != "estimated"
+            if incoming_explicit:
+                patch["expirationDate"] = expiration_date
+                patch["expirationSource"] = "explicit"
+                patch["expirationRuleId"] = None
+            elif protected_existing_date or expiration_source is None:
+                # An inferred or unavailable date can never replace a printed,
+                # user-adjusted, or otherwise non-estimated existing date.
+                for field in expiration_fields:
+                    patch.pop(field, None)
+            elif expiration_source == "not_applicable":
+                # A newly selected opt-out may clear an older generated date,
+                # but never an explicit one (handled above).
+                patch["expirationDate"] = None
+                patch["expirationSource"] = expiration_source
+                patch["expirationRuleId"] = expiration_rule_id
+            else:
+                patch["expirationDate"] = expiration_date
+                patch["expirationSource"] = expiration_source
+                patch["expirationRuleId"] = expiration_rule_id
             if priced:
                 # A priced restock is a new purchase: its price, receipt and date are this trip's.
                 # Keeping the old row's receiptId/purchaseDate would file the new price under the
@@ -549,6 +578,8 @@ def find_items(con: sqlite3.Connection, q: str, limit: int, current: bool = True
 
 def update_item(con: sqlite3.Connection, item_id: str, patch: dict):
     patch = dict(patch)
+    expiration_source = patch.pop("_expirationSource", None)
+    expiration_rule_id = patch.pop("_expirationRuleId", None)
     patch.pop("id", None)
     patch.pop("createdAt", None)
     patch["updatedAt"] = now_iso_local()
@@ -560,8 +591,8 @@ def update_item(con: sqlite3.Connection, item_id: str, patch: dict):
     if "expirationDate" in patch:
         item_cols = {r[1] for r in con.execute("PRAGMA table_info(items)").fetchall()}
         if "expirationSource" in item_cols:
-            patch["expirationSource"] = "explicit" if patch["expirationDate"] else None
-            patch["expirationRuleId"] = None
+            patch["expirationSource"] = expiration_source or ("explicit" if patch["expirationDate"] else None)
+            patch["expirationRuleId"] = expiration_rule_id
     if "price" in patch:
         patch["price"] = parse_price(patch["price"], strict=True)
 
@@ -859,6 +890,7 @@ def main():
     ap.add_argument("--item")
     ap.add_argument("--source")
     ap.add_argument("--dry-run", dest="dry_run", action="store_true")
+    ap.add_argument("--apply", action="store_true")
     ap.add_argument("--scope", default="core")
     ap.add_argument("--max-age", dest="max_age", type=float, default=60)
     ap.add_argument("--slug")
@@ -894,6 +926,17 @@ def main():
         return
 
     init_db(con)
+
+    if args.cmd == "expiration-refresh":
+        core = _core()
+        if not core:
+            raise SystemExit("foodcore could not be loaded; expiration refresh is unavailable")
+        changes = core.expiration.refresh_plan(con)
+        if args.apply and changes:
+            with con:
+                changes = core.expiration.refresh_estimates(con)
+        print(json.dumps({"applied": bool(args.apply), "count": len(changes), "changes": changes}, indent=2))
+        return
 
     if args.cmd == "add":
         merge = not getattr(args, 'no_merge', False)

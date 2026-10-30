@@ -37,11 +37,17 @@ export function usePantryActions() {
     d.setDate(d.getDate() + days)
     const iso = d.toISOString().slice(0, 10)
     const prev = item.expirationDate
-    await patch(`/items/${item.id}`, { expirationDate: iso })
+    await patch(`/items/${item.id}`, { expirationDate: iso, expirationMode: 'adjusted' })
     refresh()
     toast(`${item.name}: good for ${days} more days`, {
       label: 'Undo',
-      run: async () => { await patch(`/items/${item.id}`, { expirationDate: prev || '' }); refresh() },
+      run: async () => {
+        await patch(`/items/${item.id}`, {
+          expirationDate: prev || '', expirationMode: 'restore',
+          expirationSource: item.expirationSource, expirationRuleId: item.expirationRuleId,
+        })
+        refresh()
+      },
     })
   }
   const consumeAll = async (list, fate, label) => {
@@ -69,7 +75,7 @@ function ItemRow({ item, triage, onOpen, actions }) {
         <span className="row__aside">
           {item.lastPaid && <Money value={item.lastPaid.price} size="xs" title={`Last paid at ${item.lastPaid.store || 'unknown store'}`} />}
           <DateStamp date={item.expirationDate} daysLeft={item.daysLeft} state={item.state}
-            estimated={item.expirationSource === 'estimated'} />
+            source={item.expirationSource} />
         </span>
       </button>
       {triage && (
@@ -166,7 +172,7 @@ export default function Pantry() {
                   <div className="tag__meta">{cap(i.storage)}</div>
                 </div>
                 <DateStamp date={i.expirationDate} daysLeft={i.daysLeft} state={i.state}
-                  estimated={i.expirationSource === 'estimated'} />
+                  source={i.expirationSource} />
               </button>
             ))}
           </div>

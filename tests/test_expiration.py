@@ -14,12 +14,12 @@ def _item(con, item_id):
 
 
 def test_migration_seeds_reviewable_rule_table(con):
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 5
     count = con.execute("SELECT count(*) FROM expiration_rules WHERE source = 'built-in'").fetchone()[0]
     assert count >= 50
 
 
-def test_v3_migration_backfills_active_undated_rows_from_logged_date(con):
+def test_migration_leaves_active_legacy_rows_undated(con):
     from foodcore import schema
 
     con.execute(
@@ -29,11 +29,11 @@ def test_v3_migration_backfills_active_undated_rows_from_logged_date(con):
     )
     con.execute("PRAGMA user_version = 2")
 
-    assert schema.migrate(con) == 4
+    assert schema.migrate(con) == 5
     item = _item(con, "legacy-banana")
-    assert item["expirationDate"] == "2026-11-04"
-    assert item["expirationSource"] == "estimated"
-    assert item["expirationRuleId"] == "banana-counter"
+    assert item["expirationDate"] is None
+    assert item["expirationSource"] is None
+    assert item["expirationRuleId"] is None
 
 
 def test_banana_and_lettuce_use_specific_rules(cli, con):
@@ -55,7 +55,7 @@ def test_banana_in_pantry_uses_product_rule_not_yearlong_fallback(cli, con):
     assert banana["expirationRuleId"] == "banana-any"
 
 
-def test_v4_migration_refreshes_existing_fallback_estimate(con):
+def test_migration_does_not_refresh_existing_estimates(con):
     from foodcore import schema
 
     con.execute(
@@ -69,10 +69,10 @@ def test_v4_migration_refreshes_existing_fallback_estimate(con):
     con.execute("DELETE FROM expiration_rules WHERE id = 'banana-any'")
     con.execute("PRAGMA user_version = 3")
 
-    assert schema.migrate(con) == 4
+    assert schema.migrate(con) == 5
     item = _item(con, "v3-banana")
-    assert item["expirationDate"] == "2026-11-04"
-    assert item["expirationRuleId"] == "banana-any"
+    assert item["expirationDate"] == "2027-10-30"
+    assert item["expirationRuleId"] == "fallback-pantry"
 
 
 def test_explicit_date_always_wins(cli, con):
@@ -115,15 +115,72 @@ def test_high_risk_refrigerated_food_uses_conservative_rule(cli, con):
     assert item["expirationRuleId"] == "ground-beef-fridge"
 
 
-def test_missing_rule_fails_instead_of_creating_undated_item(cli, con):
+def test_missing_rule_logs_an_undated_item(cli, con):
     con.execute("UPDATE expiration_rules SET enabled = 0")
     con.commit()
 
     result = cli(
         "add", "--json",
         json.dumps({"name": "Unknown test product", "storage": "cupboard"}),
-        ok=False,
     )
+    item = _item(con, result.stdout.strip())
+    assert item["expirationDate"] is None
+    assert item["expirationSource"] is None
+    assert "logging without a date" in result.stderr
 
-    assert result.returncode != 0
-    assert con.execute("SELECT count(*) FROM items").fetchone()[0] == 0
+
+def test_undated_restock_never_replaces_an_explicit_date(cli, con):
+    item_id = _add(
+        cli, name="Milk", storage="fridge", purchaseDate="2026-10-30",
+        expirationDate="2026-11-20",
+    )
+    assert _add(cli, name="Milk", storage="fridge", purchaseDate="2026-10-31") == item_id
+    item = _item(con, item_id)
+    assert item["expirationDate"] == "2026-11-20"
+    assert item["expirationSource"] == "explicit"
+    assert item["expirationRuleId"] is None
+
+
+def test_explicit_restock_replaces_an_estimate(cli, con):
+    item_id = _add(cli, name="Milk", storage="fridge", purchaseDate="2026-10-30")
+    assert _add(
+        cli, name="Milk", storage="fridge", purchaseDate="2026-10-31",
+        expirationDate="2026-11-20",
+    ) == item_id
+    item = _item(con, item_id)
+    assert item["expirationDate"] == "2026-11-20"
+    assert item["expirationSource"] == "explicit"
+    assert item["expirationRuleId"] is None
+
+
+def test_nonexpiring_categories_are_labeled_without_a_fake_date(cli, con):
+    spirit = _item(con, _add(cli, name="Bourbon", storage="pantry", category="bar.whiskey"))
+    spice = _item(con, _add(cli, name="Black pepper", storage="pantry", category="pantry.spices"))
+    for item, rule in ((spirit, "bar-no-estimate"), (spice, "spices-no-estimate")):
+        assert item["expirationDate"] is None
+        assert item["expirationSource"] == "not_applicable"
+        assert item["expirationRuleId"] == rule
+
+
+def test_rule_refresh_is_preview_only_until_explicitly_applied(cli, con):
+    item_id = _add(cli, name="Blueberry bagel", storage="pantry", purchaseDate="2026-10-30")
+    con.execute(
+        "UPDATE items SET expirationDate='2027-10-30', expirationRuleId='fallback-pantry' WHERE id=?",
+        (item_id,),
+    )
+    con.commit()
+
+    preview = json.loads(cli("expiration-refresh").stdout)
+    assert preview["applied"] is False
+    assert preview["changes"] == [{
+        "id": item_id, "name": "Blueberry bagel",
+        "oldDate": "2027-10-30", "newDate": "2026-11-06",
+        "oldSource": "estimated", "newSource": "estimated",
+        "oldRuleId": "fallback-pantry", "newRuleId": "bagel-any",
+    }]
+    assert _item(con, item_id)["expirationDate"] == "2027-10-30"
+
+    applied = json.loads(cli("expiration-refresh", "--apply").stdout)
+    assert applied["applied"] is True
+    assert applied["count"] == 1
+    assert _item(con, item_id)["expirationDate"] == "2026-11-06"
