@@ -16,6 +16,7 @@ DEFAULT_RULES = (
     # Exact produce rules first. Days are intentionally conservative estimates.
     ("banana-counter", "banana", None, "counter", 5),
     ("banana-fridge", "banana", None, "fridge", 7),
+    ("banana-any", "banana", None, "*", 5),
     ("avocado-counter", "avocado", None, "counter", 4),
     ("avocado-fridge", "avocado", None, "fridge", 7),
     ("lettuce-fridge", "lettuce", None, "fridge", 7),
@@ -165,7 +166,7 @@ def estimate(con, obj: dict, *, today: dt.date | None = None) -> dict:
 
 
 def backfill_missing(con) -> int:
-    """Give active legacy pantry rows a labeled estimate during the v3 migration."""
+    """Give active legacy pantry rows a labeled estimate during migration."""
     changed = 0
     rows = con.execute(
         """SELECT * FROM items
@@ -185,6 +186,32 @@ def backfill_missing(con) -> int:
                 result["expirationRuleId"],
                 row["id"],
             ),
+        )
+        changed += 1
+    return changed
+
+
+def refresh_estimates(con) -> int:
+    """Re-evaluate active estimates after a rule-catalog version change.
+
+    Explicit dates are never selected. Recalculation keeps the original purchase
+    or logged date as the base, so a more specific rule cannot extend an item's
+    life merely because the application was upgraded later.
+    """
+    changed = 0
+    rows = con.execute(
+        """SELECT * FROM items
+           WHERE deletedAt IS NULL AND expirationSource = 'estimated'"""
+    ).fetchall()
+    for row in rows:
+        result = estimate(con, dict(row))
+        if not result.get("expirationDate"):
+            raise RuntimeError(f"no expiration rule matched estimated item {row['id']}")
+        con.execute(
+            """UPDATE items
+               SET expirationDate = ?, expirationRuleId = ?
+               WHERE id = ?""",
+            (result["expirationDate"], result["expirationRuleId"], row["id"]),
         )
         changed += 1
     return changed

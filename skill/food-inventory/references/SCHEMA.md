@@ -73,11 +73,12 @@ expiration date alone no longer needs pending state: GrubTrack records a labeled
 See `scripts/pending.js`.
 
 
-## Foodcore schema v3
+## Foodcore schema v4
 
-`PRAGMA user_version` = 3 (v2 plus deterministic expiration rules). Additive: nothing above changed.
+`PRAGMA user_version` = 4 (v3 plus catalog-version estimate refresh). Additive: nothing above changed.
 Code: `scripts/foodcore/`. Migration fills active undated legacy items from their purchase date or,
-when that is absent, their original `createdAt` date; explicit dates are untouched.
+when that is absent, their original `createdAt` date. It also recalculates active rule-generated
+dates when a catalog revision adds a more specific match; explicit dates are untouched.
 Built-ins are conservative household estimates informed by USDA FoodKeeper and its cold-storage
 chart, not package dates or food-safety guarantees.
 
