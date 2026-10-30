@@ -163,6 +163,9 @@ the rule id that produced it. Built-in rules are inserted only when absent, so a
 household rule can override them without an application-code change. Unknown products still get a
 storage-based fallback rather than silently remaining undated. The schema-v3 migration also fills
 active legacy rows that have no date, using their purchase date or original logged date as the base.
+Schema v4 also refreshes existing generated estimates when the built-in catalog gains a more
+specific rule; explicit dates remain untouched. A storage-independent banana rule prevents pantry
+or cupboard wording from receiving a year-long generic shelf-stable fallback.
 The built-in household defaults are conservative estimates informed by the USDA
 [FoodKeeper](https://www.foodsafety.gov/keep-food-safe/foodkeeper-app) and
 [cold-storage chart](https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts).

@@ -19,7 +19,8 @@ receipt or day updates that observation instead of adding a second one. An obser
 receipt line later replaces is marked `supersededBy` (kept, so unlinking can bring it back).
 
 Version lives in PRAGMA user_version (food.db was 0 before this). Version 3 adds
-the expiration-rule catalog and estimate provenance columns.
+the expiration-rule catalog and estimate provenance columns; version 4 refreshes
+existing estimates after adding the storage-independent banana rule.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import sqlite3
 
 from . import expiration
 
-VERSION = 3
+VERSION = 4
 
 # milliseconds: whether a logged price came before or after a receipt was recorded decides
 # whether it was a guess at that receipt (ledger._GUESS); seconds tie too easily
@@ -226,6 +227,7 @@ def migrate(con: sqlite3.Connection) -> int:
     con.executescript(DDL)
     expiration.seed(con)
     expiration.backfill_missing(con)
+    expiration.refresh_estimates(con)
     con.execute("CREATE INDEX IF NOT EXISTS idx_items_product ON items(productId)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_items_cat ON items(cat)")
     con.execute(f"PRAGMA user_version = {VERSION}")

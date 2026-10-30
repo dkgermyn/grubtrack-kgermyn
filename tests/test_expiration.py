@@ -14,7 +14,7 @@ def _item(con, item_id):
 
 
 def test_migration_seeds_reviewable_rule_table(con):
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
     count = con.execute("SELECT count(*) FROM expiration_rules WHERE source = 'built-in'").fetchone()[0]
     assert count >= 50
 
@@ -29,7 +29,7 @@ def test_v3_migration_backfills_active_undated_rows_from_logged_date(con):
     )
     con.execute("PRAGMA user_version = 2")
 
-    assert schema.migrate(con) == 3
+    assert schema.migrate(con) == 4
     item = _item(con, "legacy-banana")
     assert item["expirationDate"] == "2026-11-04"
     assert item["expirationSource"] == "estimated"
@@ -45,6 +45,34 @@ def test_banana_and_lettuce_use_specific_rules(cli, con):
     assert banana["expirationRuleId"] == "banana-counter"
     assert lettuce["expirationDate"] == "2026-11-06"
     assert lettuce["expirationRuleId"] == "lettuce-fridge"
+
+
+def test_banana_in_pantry_uses_product_rule_not_yearlong_fallback(cli, con):
+    banana = _item(con, _add(
+        cli, name="Bananas", storage="pantry", purchaseDate="2026-10-30",
+    ))
+    assert banana["expirationDate"] == "2026-11-04"
+    assert banana["expirationRuleId"] == "banana-any"
+
+
+def test_v4_migration_refreshes_existing_fallback_estimate(con):
+    from foodcore import schema
+
+    con.execute(
+        """INSERT INTO items
+           (id, createdAt, updatedAt, name, storage, expirationDate,
+            expirationSource, expirationRuleId)
+           VALUES ('v3-banana', '2026-10-30T18:00:00-06:00',
+                   '2026-10-30T18:00:00-06:00', 'Bananas', 'pantry',
+                   '2027-10-30', 'estimated', 'fallback-pantry')"""
+    )
+    con.execute("DELETE FROM expiration_rules WHERE id = 'banana-any'")
+    con.execute("PRAGMA user_version = 3")
+
+    assert schema.migrate(con) == 4
+    item = _item(con, "v3-banana")
+    assert item["expirationDate"] == "2026-11-04"
+    assert item["expirationRuleId"] == "banana-any"
 
 
 def test_explicit_date_always_wins(cli, con):
