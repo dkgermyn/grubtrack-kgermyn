@@ -21,6 +21,8 @@ Storage: SQLite `food.db`. `python3 {baseDir}/scripts/fooddb_sqlite.py where` pr
   "unit": "container",
   "size": "5.3 oz",
   "expirationDate": "2026-02-10",
+  "expirationSource": "explicit",
+  "expirationRuleId": null,
   "purchaseDate": "2026-02-04",
   "notes": "vanilla",
   "confidence": {
@@ -66,12 +68,18 @@ All fields are optional except: `id`, `createdAt`, and at least one of `name` or
 
 Pending state file: `pending.json` beside `food.db`.
 
-Used to store an "open" submission while the agent asks for missing info (especially expiration dates). See `scripts/pending.js`.
+Used to store an "open" submission while the agent asks for missing required information. A missing
+expiration date alone no longer needs pending state: GrubTrack records a labeled rule estimate.
+See `scripts/pending.js`.
 
 
-## Purchase ledger (foodcore schema v2, 2026-10-24)
+## Foodcore schema v3
 
-`PRAGMA user_version` = 2 (v1 + millisecond capture timestamps). Additive: nothing above changed. Code: `scripts/foodcore/`.
+`PRAGMA user_version` = 3 (v2 plus deterministic expiration rules). Additive: nothing above changed.
+Code: `scripts/foodcore/`. Migration fills active undated legacy items from their purchase date or,
+when that is absent, their original `createdAt` date; explicit dates are untouched.
+Built-ins are conservative household estimates informed by USDA FoodKeeper and its cold-storage
+chart, not package dates or food-safety guarantees.
 
 | Table | One row per | Key columns |
 |---|---|---|
@@ -81,11 +89,13 @@ Used to store an "open" submission while the agent asks for missing info (especi
 | `stores` | physical store | `chain`, `name`, `branch`, `address`, `city`, `region`, `postal`, `storeNumber` |
 | `store_aliases` | spelling of a store | `alias` → `storeId` |
 | `item_price_audit` | correction to `items.price` | `oldPrice`, `newPrice`, `reason`, `at` |
+| `expiration_rules` | shelf-life rule | optional canonical `generic` or taxonomy `category`, `storage`, `days`, `priority`, `enabled`, `source` |
 
 | Added column | Meaning |
 |---|---|
 | `items.price`, `items.receiptId` | what this row cost, on which receipt (latest linked receipt wins) |
 | `items.productId`, `items.dept`, `items.cat` | resolved product and taxonomy (filled by the sweep) |
+| `items.expirationSource`, `items.expirationRuleId` | `explicit` or labeled `estimated` provenance and the matching rule |
 | `receipts.storeId`, `subtotal`, `tax`, `lineCount` | resolved store, printed figures |
 | `receipts.reconciled`, `receipts.diff` | 1 when lines + tax = total within $0.02; the gap otherwise |
 
@@ -96,5 +106,6 @@ Used to store an "open" submission while the agent asks for missing info (especi
 | A reconciled receipt's lines outrank item-level prices for that receipt | trigger + `import_receipt` |
 | Same item code at the same chain = same product | `ledger.sweep` |
 | A category set by a person (`catSource='user'`) is never re-classified | `ledger.sweep` |
+| An explicit expiration date wins; otherwise the highest-priority most-specific enabled rule supplies an estimate | `expiration.estimate` |
 
 Taxonomy: 12 departments, `dept.cat` keys (`python3 fooddb_sqlite.py categories`).

@@ -38,8 +38,11 @@ who, where to confirm, house conventions) and wins where it disagrees with this 
 ### 0) Required fields and acknowledgment
 
 - Required to say **"Logged"**: `storage` + some `name` (or `Unknown item #1/#2`).
-- If `expirationDate` is missing or uncertain: say **"Logged (missing exp date)"** and ask immediately.
-- Never claim an expiration date was logged unless it is present in the record.
+- If `expirationDate` is absent, GrubTrack assigns a deterministic shelf-life estimate from its
+  `expiration_rules` table. Report it as an **estimated use-by date**, never as a package date.
+- Never claim that an estimated date was printed on the product.
+- Never present an estimate as a food-safety guarantee. Package instructions, recalls, temperature
+  history, and signs of spoilage take precedence.
 
 ### 1) Extract what you can
 
@@ -53,14 +56,15 @@ who, where to confirm, house conventions) and wins where it disagrees with this 
 
 Expiration parsing:
 - If the stamp is partial (`202_`) or ambiguous, **do not** fill `expirationDate`.
-- Put the raw stamp in `notes` and ask the person to type the date.
+- Put the raw stamp in `notes`; GrubTrack will apply and label its deterministic estimate. Ask the
+  person to type the date only when they want the printed date to replace that estimate.
 
 ### 2) Pending submissions when something important is missing
 
 Pending state makes follow-ups deterministic. Helper: `node {baseDir}/scripts/pending.js`
 (`pending.json` sits beside `food.db`).
 
-If `expirationDate` (or another key field) is missing:
+If another required key field is missing:
 1) Create a pending entry (one per photo) with the extracted items and the missing fields.
 2) Ask for the missing info **in the same thread**, in one message with a copy-paste format.
 
@@ -70,7 +74,7 @@ Example follow-up (two items):
 ### 3) Save the records
 
 - One record per distinct product.
-- Prefer incomplete over invented.
+- Prefer a labeled deterministic estimate over an invented package date.
 - Add `confidence` when a field is inferred.
 
 ### 4) Store the image
@@ -258,7 +262,8 @@ Every row gets a department and category automatically (`dept`, `cat`, e.g. `dai
 
 ## Guardrails
 
-- **No hallucinated expiration dates.** If unreadable, leave blank or keep the raw text.
+- **No hallucinated package dates.** If unreadable, leave the explicit field blank or keep the raw
+  text; GrubTrack's rule-generated estimate remains visibly identified as an estimate.
 - A receipt photo may show names or card digits; don't echo them back unless asked. Never put full
   card numbers, auth codes or reference numbers in a receipt's `payment`.
 - Confirm in the chat the request came from.

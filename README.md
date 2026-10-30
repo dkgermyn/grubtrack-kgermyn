@@ -155,6 +155,20 @@ A pantry row is in date, then **Use first** (dated today through the next three 
 the Pantry page), then past its date. A restock of something already in the house merges into its
 row; the ledger keeps the old price. **Still good** on a past-date row gives it seven more days.
 
+When a new row has no explicit use-by date, GrubTrack assigns a deterministic estimate from the
+SQLite `expiration_rules` catalog. Rules match the taxonomy's canonical product or category plus
+its storage location; specific examples include bananas on the counter and lettuce in the fridge.
+An explicit date always wins. The Pantry marks generated dates as estimates and each item retains
+the rule id that produced it. Built-in rules are inserted only when absent, so a higher-priority
+household rule can override them without an application-code change. Unknown products still get a
+storage-based fallback rather than silently remaining undated. The schema-v3 migration also fills
+active legacy rows that have no date, using their purchase date or original logged date as the base.
+The built-in household defaults are conservative estimates informed by the USDA
+[FoodKeeper](https://www.foodsafety.gov/keep-food-safe/foodkeeper-app) and
+[cold-storage chart](https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts).
+They are not package dates or a food-safety guarantee: package instructions, recalls, temperature
+history, and signs of spoilage take precedence.
+
 Past-date items stay on the Pantry page under **Past date** until someone marks them, one at a time
 or a whole department at once. Marking is a soft delete that records the fate: **Ate it** feeds the
 restock ideas on the List page, **Tossed** feeds the waste numbers on the Spend page, and both
@@ -382,6 +396,7 @@ image and the from-source steps above do.
 | Sold-by-weight packages are compared only when the weight is known | two packs of deli turkey say nothing per pound |
 | A buying rhythm predicts a due date only after three purchases | two purchases are a gap, not a rhythm |
 | A category set by hand is never changed back | a correction should only have to be made once |
+| Explicit use-by dates win; otherwise `expiration_rules` supplies a labeled estimate | reminders stay deterministic without pretending an estimate was printed on the package |
 | Deleting a pantry item is soft and records eaten or tossed | that's what the restock ideas and the waste numbers learn from |
 
 ## Development

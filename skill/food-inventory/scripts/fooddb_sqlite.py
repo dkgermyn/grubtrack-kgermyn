@@ -130,6 +130,7 @@ def _core():
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import foodcore.ledger as ledger  # noqa: F401
         import foodcore.intel as intel  # noqa: F401
+        import foodcore.expiration as expiration  # noqa: F401
         import foodcore.schema as schema  # noqa: F401
         return sys.modules["foodcore"]
     except Exception as e:  # pragma: no cover - defensive
@@ -360,6 +361,19 @@ def add_item(con: sqlite3.Connection, obj: dict, merge: bool = True):
     created_by = obj.get("createdBy") or {}
     raw = obj.get("raw") or {}
     conf = obj.get("confidence")
+    expiration_date = _normalize_date(obj.get("expirationDate"))
+    expiration_source = "explicit" if expiration_date else None
+    expiration_rule_id = None
+    if not expiration_date:
+        core = _core()
+        if not core:
+            raise RuntimeError("expiration rules are unavailable")
+        estimate = core.expiration.estimate(con, obj)
+        if not estimate.get("expirationDate"):
+            raise RuntimeError("no expiration rule matched the item")
+        expiration_date = estimate["expirationDate"]
+        expiration_source = estimate["expirationSource"]
+        expiration_rule_id = estimate["expirationRuleId"]
 
     row = {
         "id": item_id,
@@ -381,7 +395,7 @@ def add_item(con: sqlite3.Connection, obj: dict, merge: bool = True):
         "quantity": obj.get("quantity"),
         "unit": obj.get("unit"),
         "size": obj.get("size"),
-        "expirationDate": _normalize_date(obj.get("expirationDate")),
+        "expirationDate": expiration_date,
         "purchaseDate": _normalize_date(obj.get("purchaseDate")),
         "notes": obj.get("notes"),
 
@@ -398,6 +412,9 @@ def add_item(con: sqlite3.Connection, obj: dict, merge: bool = True):
     }
     # price columns exist once foodcore has migrated the schema
     cols = {r[1] for r in con.execute("PRAGMA table_info(items)").fetchall()}
+    if "expirationSource" in cols:
+        row["expirationSource"] = expiration_source
+        row["expirationRuleId"] = expiration_rule_id
     price = parse_price(obj.get("price"))
     receipt_id = obj.get("receiptId") or None
     priced = "price" in cols and (price is not None or receipt_id is not None)
@@ -540,6 +557,11 @@ def update_item(con: sqlite3.Connection, item_id: str, patch: dict):
     for k in ("expirationDate", "purchaseDate", "openedAt"):
         if k in patch:
             patch[k] = _normalize_date(patch[k])
+    if "expirationDate" in patch:
+        item_cols = {r[1] for r in con.execute("PRAGMA table_info(items)").fetchall()}
+        if "expirationSource" in item_cols:
+            patch["expirationSource"] = "explicit" if patch["expirationDate"] else None
+            patch["expirationRuleId"] = None
     if "price" in patch:
         patch["price"] = parse_price(patch["price"], strict=True)
 
