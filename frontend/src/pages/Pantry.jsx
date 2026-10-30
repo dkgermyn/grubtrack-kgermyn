@@ -68,7 +68,8 @@ function ItemRow({ item, triage, onOpen, actions }) {
         </span>
         <span className="row__aside">
           {item.lastPaid && <Money value={item.lastPaid.price} size="xs" title={`Last paid at ${item.lastPaid.store || 'unknown store'}`} />}
-          <DateStamp date={item.expirationDate} daysLeft={item.daysLeft} state={item.state} />
+          <DateStamp date={item.expirationDate} daysLeft={item.daysLeft} state={item.state}
+            estimated={item.expirationSource === 'estimated'} />
         </span>
       </button>
       {triage && (
@@ -164,7 +165,8 @@ export default function Pantry() {
                   <div className="tag__name">{i.name}</div>
                   <div className="tag__meta">{cap(i.storage)}</div>
                 </div>
-                <DateStamp date={i.expirationDate} daysLeft={i.daysLeft} state={i.state} />
+                <DateStamp date={i.expirationDate} daysLeft={i.daysLeft} state={i.state}
+                  estimated={i.expirationSource === 'estimated'} />
               </button>
             ))}
           </div>

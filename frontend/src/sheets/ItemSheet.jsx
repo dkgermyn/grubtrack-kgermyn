@@ -101,7 +101,8 @@ export default function ItemSheet({ id, onClose }) {
               <dt>Logged</dt><dd>{ago(it.createdAt)}{it.createdByName ? ` by ${it.createdByName}` : ''}</dd>
               {gone && <><dt>Gone</dt><dd>{shortDate(it.deletedAt)}</dd></>}
             </dl>
-            <DateStamp date={it.expirationDate} daysLeft={it.daysLeft} state={it.state} />
+            <DateStamp date={it.expirationDate} daysLeft={it.daysLeft} state={it.state}
+              estimated={it.expirationSource === 'estimated'} />
           </div>
           {!gone && it.state === 'expired' && (
             <div className="btn-row block">

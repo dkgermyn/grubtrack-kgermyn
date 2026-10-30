@@ -67,6 +67,13 @@ def test_patch_item_extends_date(client):
     assert client.patch(f"/api/items/{item['id']}", json={"id": "x"}).status_code == 400
 
 
+def test_api_add_without_date_returns_visible_estimate(client):
+    item = client.post("/api/items", json={"name": "Bananas", "storage": "counter"}).json()
+    assert item["expirationDate"]
+    assert item["expirationSource"] == "estimated"
+    assert item["expirationRuleId"] == "banana-counter"
+
+
 def test_receipt_flow_and_prices(client):
     from app.db import connect, ledger
     con = connect()

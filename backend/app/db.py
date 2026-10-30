@@ -58,7 +58,8 @@ def freshness(exp: str | None, now: dt.date | None = None) -> tuple[int | None, 
 
 
 ITEM_FIELDS = ("id", "name", "brand", "storage", "location", "dept", "cat", "category", "subCategory", "spiritType",
-               "quantity", "unit", "size", "expirationDate", "purchaseDate", "openedAt", "bottleState", "abv",
+               "quantity", "unit", "size", "expirationDate", "expirationSource", "expirationRuleId",
+               "purchaseDate", "openedAt", "bottleState", "abv",
                "volumeMl", "price", "receiptId", "productId", "notes", "createdAt", "updatedAt", "deletedAt",
                "createdByName")
 
