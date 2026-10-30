@@ -155,17 +155,19 @@ A pantry row is in date, then **Use first** (dated today through the next three 
 the Pantry page), then past its date. A restock of something already in the house merges into its
 row; the ledger keeps the old price. **Still good** on a past-date row gives it seven more days.
 
-When a new row has no explicit use-by date, GrubTrack assigns a deterministic estimate from the
-SQLite `expiration_rules` catalog. Rules match the taxonomy's canonical product or category plus
-its storage location; specific examples include bananas on the counter and lettuce in the fridge.
-An explicit date always wins. The Pantry marks generated dates as estimates and each item retains
-the rule id that produced it. Built-in rules are inserted only when absent, so a higher-priority
-household rule can override them without an application-code change. Unknown products still get a
-storage-based fallback rather than silently remaining undated. The schema-v3 migration also fills
-active legacy rows that have no date, using their purchase date or original logged date as the base.
-Schema v4 also refreshes existing generated estimates when the built-in catalog gains a more
-specific rule; explicit dates remain untouched. A storage-independent banana rule prevents pantry
-or cupboard wording from receiving a year-long generic shelf-stable fallback.
+When a newly logged row has no explicit use-by date, GrubTrack can assign a deterministic estimate
+from the SQLite `expiration_rules` catalog. Rules match the taxonomy's canonical product or category
+plus its storage location; examples include bananas, lettuce and bagels. A restock estimate never
+replaces an existing printed or user-entered date. The Pantry labels generated and user-adjusted
+dates, and each estimate retains the rule id that produced it. Higher-priority household rules can
+override the built-ins without an application-code change. Spirits, household supplies and spices
+use explicit no-estimate rules because a made-up use-by date would be misleading. If rule evaluation
+is unavailable, inventory logging still succeeds without a date.
+
+Migrations never assign dates to legacy undated rows and never recalculate existing estimates.
+Use `fooddb_sqlite.py expiration-refresh` to preview the exact changes a revised catalog would make;
+add `--apply` only after reviewing that output. This keeps rule maintenance from unexpectedly moving
+items into **Past date** or out of recipe suggestions.
 The built-in household defaults are conservative estimates informed by the USDA
 [FoodKeeper](https://www.foodsafety.gov/keep-food-safe/foodkeeper-app) and
 [cold-storage chart](https://www.foodsafety.gov/food-safety-charts/cold-food-storage-charts).
@@ -399,7 +401,7 @@ image and the from-source steps above do.
 | Sold-by-weight packages are compared only when the weight is known | two packs of deli turkey say nothing per pound |
 | A buying rhythm predicts a due date only after three purchases | two purchases are a gap, not a rhythm |
 | A category set by hand is never changed back | a correction should only have to be made once |
-| Explicit use-by dates win; otherwise `expiration_rules` supplies a labeled estimate | reminders stay deterministic without pretending an estimate was printed on the package |
+| Explicit use-by dates win; otherwise `expiration_rules` may supply a labeled estimate | reminders stay deterministic without pretending every item needs a date |
 | Deleting a pantry item is soft and records eaten or tossed | that's what the restock ideas and the waste numbers learn from |
 
 ## Development

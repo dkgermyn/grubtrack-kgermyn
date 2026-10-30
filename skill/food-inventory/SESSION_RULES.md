@@ -11,7 +11,8 @@ When a user is clearly listing food inventory to be logged, do not stay in conve
 3. Do not ask “want me to log what you’ve given me so far?” after the user has already asked to log inventory. Log it.
 4. If a user is sending a multi-message batch, keep a concise running summary if needed, but persist each complete item as soon as it is clear enough.
 5. If an earlier transcript item is explicitly revoked (example: “ignore that radishes message”), do not store it.
-6. If expiration is unknown, store the item without `expirationDate` and note that it was unknown.
+6. If expiration is unknown, omit `expirationDate`; GrubTrack may add a visibly labeled estimate.
+   If `LOCAL.md` says `expiration_prompt: always`, ask for the printed date instead.
 7. Default assumption is utilitarian: inventory statements are instructions, not brainstorming.
 
 ## Preferred behavior for voice transcripts

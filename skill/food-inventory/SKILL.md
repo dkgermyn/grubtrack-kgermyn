@@ -1,7 +1,7 @@
 ---
 name: food-inventory
 description: Log and query the household's food and bar inventory, receipts, prices and grocery spend (GrubTrack's food.db). Use for grocery, pantry, fridge or receipt photos; "what do we have", what's expiring, meal ideas; what X cost, where it's cheaper, whether it went up, and what we spent.
-version: 2.1.0
+version: 2.2.0
 license: MIT
 homepage: https://github.com/chungus-actual/grubtrack
 metadata:
@@ -39,7 +39,10 @@ who, where to confirm, house conventions) and wins where it disagrees with this 
 
 - Required to say **"Logged"**: `storage` + some `name` (or `Unknown item #1/#2`).
 - If `expirationDate` is absent, GrubTrack assigns a deterministic shelf-life estimate from its
-  `expiration_rules` table. Report it as an **estimated use-by date**, never as a package date.
+  `expiration_rules` table when one is appropriate. Report it as an **estimated use-by date**, never
+  as a package date. Some categories intentionally remain undated.
+- A household may put `expiration_prompt: always` in `LOCAL.md` to request a printed date before
+  accepting an estimate. Otherwise, log immediately and use the labeled estimate.
 - Never claim that an estimated date was printed on the product.
 - Never present an estimate as a food-safety guarantee. Package instructions, recalls, temperature
   history, and signs of spoilage take precedence.
@@ -56,8 +59,8 @@ who, where to confirm, house conventions) and wins where it disagrees with this 
 
 Expiration parsing:
 - If the stamp is partial (`202_`) or ambiguous, **do not** fill `expirationDate`.
-- Put the raw stamp in `notes`; GrubTrack will apply and label its deterministic estimate. Ask the
-  person to type the date only when they want the printed date to replace that estimate.
+- Put the raw stamp in `notes`; GrubTrack will apply and label an appropriate deterministic estimate.
+  Ask for the printed date only when `LOCAL.md` requests it or the person wants to replace an estimate.
 
 ### 2) Pending submissions when something important is missing
 
@@ -90,8 +93,8 @@ Bar defaults:
 - `storage` is the temperature class: default `cupboard`, `fridge` when refrigerated
 - A dedicated drink fridge: `storage=fridge` + `location=drink fridge`
 
-Several items in one photo can be told apart with `left/right` or `1/2`. If an exp date can't be
-read, ask once, immediately.
+Several items in one photo can be told apart with `left/right` or `1/2`. If an expiration date can't
+be read, follow the household's `LOCAL.md` prompting preference.
 
 ## Commands
 
